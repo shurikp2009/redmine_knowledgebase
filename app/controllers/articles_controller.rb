@@ -96,12 +96,6 @@ class ArticlesController < ApplicationController
     @article.version_comments = params[:article] && params[:article][:version_comments]
     
     if @article.save
-<<<<<<< HEAD
-      attachments = attach(@article, params[:attachments])
-      flash[:notice] = l(:label_article_created, :title => @article.title)
-      redirect_to({ :action => 'show', :id => @article.id, :project_id => @project })
-      KbMailer.article_create(@article).deliver
-=======
       attachments = attach(@article, attachments_from_params)
 
       respond_to do |format|
@@ -112,8 +106,7 @@ class ArticlesController < ApplicationController
         format.api  { render :action => 'show', :status => :created, :location => article_url(@article, project_id: @article.project_id) }
       end
 
-      KbMailer.article_create(User.current, @article).deliver
->>>>>>> f032c64... rest api
+      KbMailer.article_create(@article).deliver
     else
       respond_to do |format|
         format.html {
