@@ -182,7 +182,7 @@ class ArticlesController < ApplicationController
         format.api  { render_api_ok }
       end
 
-      KbMailer.article_update(User.current, @article).deliver
+      KbMailer.article_update(@article).deliver
     else
       render({:action => 'edit', :id => @article.id})
     end
