@@ -10,6 +10,7 @@ class CategoriesController < ApplicationController
   before_filter :find_project_by_project_id, :authorize
   before_filter :get_category, :only => [:show, :edit, :update, :destroy, :index]
   accept_rss_auth :show
+  accept_api_auth :index, :show, :create, :update, :destroy
 
   rescue_from ActiveRecord::RecordNotFound, :with => :force_404
 
@@ -21,6 +22,10 @@ class CategoriesController < ApplicationController
 
     respond_to do |format|
       format.html { render :template => 'categories/index', :layout => !request.xhr? }
+      format.api {
+        @offset, @limit = api_offset_and_limit
+        @categories = @project.categories.offset(@offset).limit(@limit)
+      }
     end
 
   end
@@ -36,6 +41,8 @@ class CategoriesController < ApplicationController
     respond_to do |format|
       format.html { render :template => 'categories/show', :layout => !request.xhr? }
       format.atom { render_feed(@articles, :title => "#{l(:knowledgebase_title)}: #{l(:label_category)}: #{@category.title}") }
+
+      format.api
     end
 
   end
@@ -49,19 +56,34 @@ class CategoriesController < ApplicationController
   def create
     @category = KbCategory.new(params[:category])
     @category.project_id=@project.id
+    
     if @category.save
       # Test if the new category is a root category, and if more categories exist.
       # We check for a value > 1 because if this is the first entry, the category
       # count would be 1 (since the create operation already succeeded)
       if !params[:root_category] and @project.categories.count > 1
-        @category.move_to_child_of(KbCategory.find(params[:parent_id]))
+        parent_id = !api_request? ? params[:parent_id] : params[:category][:parent_id]
+        @category.move_to_child_of(KbCategory.find(parent_id))
       end
 
-      flash[:notice] = l(:label_category_created, :title => @category.title)
-      redirect_to({ :action => 'show', :id => @category.id, :project_id => @project })
+      respond_to do |format|
+        format.html {
+          flash[:notice] = l(:label_category_created, :title => @category.title)
+          redirect_to({ :action => 'show', :id => @category.id, :project_id => @project })
+        }
+
+        format.api  { render :action => 'show', :status => :created, :location => category_url(@category, project_id: @category.project_id) }
+      end
     else
-      render(:action => 'new')
+      respond_to do |format|
+        format.html {
+          render(:action => 'new')
+        }
+        format.api  { render_validation_errors(@category) }
+      end
     end
+  rescue
+    binding.pry
   end
 
   def edit
@@ -76,17 +98,37 @@ class CategoriesController < ApplicationController
     @subcategories = @project.categories.where(:parent_id => @category.id)
 
     if @subcategories.size != 0
-      @articles = @category.articles.all
-      flash[:error] = l(:label_category_has_subcategory_cannot_delete)
-      render(:action => 'show')
+      respond_to do |format|
+        format.html { 
+          @articles = @category.articles.all
+          flash[:error] = l(:label_category_has_subcategory_cannot_delete)
+          render(:action => 'show')
+        }
+
+        format.api  { render_api_errors(l(:label_category_has_subcategory_cannot_delete)) }
+      end
     elsif @category.articles.size != 0
-      @articles = @category.articles.all
-      flash[:error] = l(:label_category_not_empty_cannot_delete)
-      render(:action => 'show')
+      respond_to do |format|
+        format.html { 
+          @articles = @category.articles.all
+          flash[:error] = l(:label_category_not_empty_cannot_delete)
+          render(:action => 'show')
+        }
+  
+        format.api  { render_api_errors(l(:label_category_not_empty_cannot_delete)) }
+      end
     else
       @category.destroy
-      flash[:notice] = l(:label_category_deleted)
-      redirect_to({ :controller => :articles, :action => 'index', :project_id => @project})
+
+      respond_to do |format|
+        format.html { 
+          flash[:notice] = l(:label_category_deleted)
+          redirect_to({ :controller => :articles, :action => 'index', :project_id => @project})
+        }
+  
+        format.api  { render_api_ok }
+      end
+  
     end
   end
 
@@ -94,7 +136,14 @@ class CategoriesController < ApplicationController
     if params[:root_category] == "yes"
       @category.parent_id = nil
     else
-      @category.move_to_child_of(KbCategory.find(params[:parent_id]))
+      unless api_request?
+        @category.move_to_child_of(KbCategory.find(params[:parent_id]))
+      else
+        if params[:category].has_key?(:parent_id) || params.has_key?(:parent_id)
+          parent_id = params[:category][:parent_id] || params[:parent_id]
+          @category.move_to_child_of(KbCategory.find(parent_id))
+        end
+      end
     end
 
     if @category.update_attributes(params[:category])

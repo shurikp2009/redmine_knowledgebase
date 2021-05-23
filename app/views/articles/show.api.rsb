@@ -1,0 +1,51 @@
+api.article do
+  api.id @article.id
+  api.project(:id => @article.project_id, :name => @article.project.name) unless @article.project.nil?
+  
+  api.author(:id => @article.author_id, :name => @article.author.name) unless @article.author.nil?
+  api.updater(:id => @article.updater_id, :name => @article.updater.name) unless @article.updater.nil?
+  
+  api.category(:id => @article.category_id, :name => @article.category.title) unless @article.category.nil?
+  
+  api.title @article.title
+  api.summary @article.summary
+  api.content @article.content
+
+  api.created_at @article.created_at
+  api.updated_at @article.updated_at
+
+  api.rating_average @article.rating_average
+  
+  api.version @article.version
+  api.version_comments @article.version_comments
+
+  api.array :attachments do
+    @article.attachments.each do |attachment|
+      render_api_attachment(attachment, api)
+    end
+  end if include_in_api_response?('attachments')
+
+  api.array :comments do
+    @article.comments.each do |comment|
+      api.comment do 
+        api.contents comment.comments
+        api.author(:id => comment.author_id, :name => comment.author.name) unless comment.author.nil?
+      end
+    end
+  end if include_in_api_response?('comments')
+
+  api.array :tags do 
+    @article.tags.each do |tag|
+      api.tag tag.name
+    end
+  end if include_in_api_response?('tags')
+
+  api.array :versions do 
+    @article.version.each do |version|
+      api.id version.id
+      api.title version.title
+      api.summary version.summary
+      api.content version.content
+    end
+  end if include_in_api_response?('versions')
+end

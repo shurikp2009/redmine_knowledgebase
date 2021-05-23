@@ -1,0 +1,11 @@
+api.category do
+  api.id @category.id
+  api.project(:id => @category.project_id, :name => @category.project.name) unless @category.project.nil?
+  
+  api.title @category.title
+  api.description @category.description
+  api.parent_id    @category.parent_id
+
+  api.created_at @category.created_at
+  api.updated_at @category.updated_at
+end
