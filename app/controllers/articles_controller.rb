@@ -11,6 +11,8 @@ class ArticlesController < ApplicationController
   before_action :find_project_by_project_id, :authorize
   before_action :get_article, :except => [:index, :new, :create, :preview, :comment, :tagged, :rate, :authored]
 
+  accept_api_auth :index, :show, :create, :update, :destroy, :version, :tagged
+
   rescue_from ActionView::MissingTemplate, :with => :force_404
   rescue_from ActiveRecord::RecordNotFound, :with => :force_404
 
@@ -19,22 +21,16 @@ class ArticlesController < ApplicationController
   end
 
   def index
-    summary_limit = redmine_knowledgebase_settings_value(:summary_limit).to_i
+    load_articles unless api_request?
 
-    @total_categories = @project.categories.count
-    @total_articles = @project.articles.count
-    @total_articles_by_me = @project.articles.where(:author_id => User.current.id).count
+    respond_to do |format|
+      format.api  {
+        @offset, @limit = api_offset_and_limit
+        @articles = @project.articles.offset(@offset).limit(@limit)
+      }
 
-    @categories = @project.categories.where(:parent_id => nil)
-
-    @articles_newest = @project.articles.order("created_at DESC").first(summary_limit)
-    @articles_latest = @project.articles.order("updated_at DESC").first(summary_limit)
-    @articles_popular = @project.articles.includes(:viewings).sort_by(&:view_count).reverse.first(summary_limit)
-    @articles_toprated = @project.articles.includes(:ratings).sort_by { |a| [a.rating_average, a.rated_count] }.reverse.first(summary_limit)
-
-    @tags = @project.articles.tag_counts.sort { |a, b| a.name.downcase <=> b.name.downcase }
-    @tags_hash = Hash[ @project.articles.tag_counts.map{ |tag| [tag.name.downcase, 1] } ]
-
+      format.html
+    end
   end
 
   def authored
@@ -92,19 +88,39 @@ class ArticlesController < ApplicationController
     @article = KbArticle.new
     @article.safe_attributes = params[:article]
     @article.category_id = params[:category_id]
-    @article.author_id = User.current.id
-    @article.project_id = KbCategory.find(params[:category_id]).project_id
+
+    if api_request?
+      @article.category_id ||= params[:article] && params[:article][:category_id]
+    end
+
+    @article.author_id  = User.current.id    
+    @article.project_id = KbCategory.find_by_id(@article.category_id).try(:project_id)
     @categories = @project.categories.all
     # don't keep previous comment
-    @article.version_comments = params[:article][:version_comments]
+    @article.version_comments = params[:article] && params[:article][:version_comments]
+    
     if @article.save
-      attachments = attach(@article, params[:attachments])
-      flash[:notice] = l(:label_article_created, :title => @article.title)
-      redirect_to({ :action => 'show', :id => @article.id, :project_id => @project })
+      attachments = attach(@article, attachments_from_params)
+
+      respond_to do |format|
+        format.html {
+          flash[:notice] = l(:label_article_created, :title => @article.title)
+          redirect_to({ :action => 'show', :id => @article.id, :project_id => @project })
+        }
+        format.api  { render :action => 'show', :status => :created, :location => article_url(@article, project_id: @article.project_id) }
+      end
+
       KbMailer.article_create(User.current, @article).deliver
     else
-      render(:action => 'new')
+      respond_to do |format|
+        format.html {
+          render(:action => 'new')
+        }
+        format.api  { render_validation_errors(@article) }
+      end
     end
+  rescue
+    binding.pry
   end
 
   def show
@@ -118,7 +134,11 @@ class ArticlesController < ApplicationController
       format.html { render :template => 'articles/show', :layout => !request.xhr? }
       format.atom { render_feed(@article, :title => "#{l(:label_article)}: #{@article.title}") }
 	  format.pdf  { send_data(article_to_pdf(@article, @project), :type => 'application/pdf', :filename => 'export.pdf') }
+
+      format.api
     end
+  rescue
+    binding.pry
   end
 
   def edit
@@ -138,23 +158,35 @@ class ArticlesController < ApplicationController
   end
 
   def update
-
     if not @article.editable_by?(User.current)
       render_403
       return false
     end
 
     @article.updater_id = User.current.id
-    params[:article][:category_id] = params[:category_id]
+    
+    unless api_request?
+      params[:article][:category_id] = params[:category_id]
+    end
+      
     @categories = @project.categories.all
     # don't keep previous comment
     @article.version_comments = nil
     @article.version_comments = params[:article][:version_comments]
     @article.safe_attributes = params[:article]
+    
     if @article.save
-      attachments = attach(@article, params[:attachments])
-      flash[:notice] = l(:label_article_updated)
-      redirect_to({ :action => 'show', :id => @article.id, :project_id => @project })
+      attachments = attach(@article, attachments_from_params)
+
+      respond_to do |format|
+        format.html do
+          flash[:notice] = l(:label_article_updated)
+          redirect_to({ :action => 'show', :id => @article.id, :project_id => @project })
+        end
+
+        format.api  { render_api_ok }
+      end
+
       KbMailer.article_update(User.current, @article).deliver
     else
       render({:action => 'edit', :id => @article.id})
@@ -200,8 +232,15 @@ class ArticlesController < ApplicationController
 
     KbMailer.article_destroy(User.current, @article).deliver
     @article.destroy
-    flash[:notice] = l(:label_article_removed)
-    redirect_to({ :controller => 'articles', :action => 'index', :project_id => @project})
+
+    respond_to do |format|
+      format.html { 
+        flash[:notice] = l(:label_article_removed)
+        redirect_to({ :controller => 'articles', :action => 'index', :project_id => @project}) 
+      }
+
+      format.api  { render_api_ok }
+    end
   end
 
   def add_attachment
@@ -216,10 +255,21 @@ class ArticlesController < ApplicationController
 
   def tagged
     @tag = params[:id]
-    @list = if params[:sort] && params[:direction]
-      @project.articles.order("#{params[:sort]} #{params[:direction]}").tagged_with(@tag)
-    else
-      @project.articles.tagged_with(@tag)
+
+    respond_to do |format|
+      format.html do
+        @list = if params[:sort] && params[:direction]
+          @project.articles.order("#{params[:sort]} #{params[:direction]}").tagged_with(@tag)
+        else
+          @project.articles.tagged_with(@tag)
+        end    
+      end
+      
+      format.api do
+        @offset, @limit = api_offset_and_limit
+        @articles = @project.articles.offset(@offset).limit(@limit).tagged_with(@tag)
+        render action: 'index'
+      end
     end
   end
 
@@ -239,6 +289,11 @@ class ArticlesController < ApplicationController
 
   def version
     @articleversion = @article.content_for_version(params[:version])
+
+    respond_to do |format|
+      format.html 
+      format.api
+    end
   end
 
   def diff
@@ -276,4 +331,25 @@ private
     render_404
   end
 
+  def load_articles
+    summary_limit = redmine_knowledgebase_settings_value(:summary_limit).to_i
+
+    @total_categories = @project.categories.count
+    @total_articles = @project.articles.count
+    @total_articles_by_me = @project.articles.where(:author_id => User.current.id).count
+
+    @categories = @project.categories.where(:parent_id => nil)
+
+    @articles_newest = @project.articles.order("created_at DESC").first(summary_limit)
+    @articles_latest = @project.articles.order("updated_at DESC").first(summary_limit)
+    @articles_popular = @project.articles.includes(:viewings).sort_by(&:view_count).reverse.first(summary_limit)
+    @articles_toprated = @project.articles.includes(:ratings).sort_by { |a| [a.rating_average, a.rated_count] }.reverse.first(summary_limit)
+
+    @tags = @project.articles.tag_counts.sort { |a, b| a.name.downcase <=> b.name.downcase }
+    @tags_hash = Hash[ @project.articles.tag_counts.map{ |tag| [tag.name.downcase, 1] } ]
+  end
+
+  def attachments_from_params
+    params[:attachments] || (params[:article] && params[:article][:uploads])
+  end
 end

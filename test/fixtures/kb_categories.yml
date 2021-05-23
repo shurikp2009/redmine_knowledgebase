@@ -3,7 +3,21 @@ one:
   id: 1
   title: MyString
   description: MyText
+  project_id: 1
+  lft: 1
+  rgt: 2
 two:
   id: 2
   title: MyString
   description: MyText
+  project_id: 1
+  lft: 3
+  rgt: 4
+empty:
+  id: 3
+  title: Empty category
+  description: MyText
+  project_id: 1
+  lft: 5
+  rgt: 6
+

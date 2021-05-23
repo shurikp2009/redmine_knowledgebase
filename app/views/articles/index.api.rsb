@@ -1,0 +1,42 @@
+api.array :articles, api_meta(:total_count => @article_count, :offset => @offset, :limit => @limit) do
+  @articles.each do |article|
+    api.article do
+      api.id article.id
+      api.project(:id => article.project_id, :name => article.project.name) unless article.project.nil?
+
+      api.title     article.title
+      api.summary   article.summary
+      api.content   article.content
+
+      api.category(:id => article.category_id, :name => article.category.title) unless article.category.nil?
+
+      api.author(:id => article.author_id, :name => article.author.name) unless article.author.nil?
+
+      api.updater(:id => article.updater_id, :name => article.updater.name) unless article.updater.nil?
+
+      api.created_at article.created_at
+      api.updated_at article.updated_at
+
+      api.array :attachments do
+        article.attachments.each do |attachment|
+          render_api_attachment(attachment, api)
+        end
+      end if include_in_api_response?('attachments')
+
+      api.array :comments do
+        article.comments.each do |comment|
+          api.comment do 
+            api.contents comment.comments
+            api.author(:id => comment.author_id, :name => comment.author.name) unless comment.author.nil?
+          end
+        end
+      end if include_in_api_response?('comments')
+
+      api.array :tags do 
+        article.tags.each do |tag|
+          api.tag tag.name
+        end
+      end if include_in_api_response?('tags')
+    end
+  end
+end
