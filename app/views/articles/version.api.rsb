@@ -1,0 +1,15 @@
+api.article_version do
+  api.version @articleversion.version
+  
+  api.author(:id => @articleversion.author_id, :name => @articleversion.author.name) unless @articleversion.author.nil?
+  api.updater(:id => @articleversion.updater_id, :name => @articleversion.updater.name) unless @articleversion.updater.nil?
+  
+  api.category(:id => @articleversion.category_id, :name => @articleversion.category.title) unless @articleversion.category.nil?
+  
+  api.title @articleversion.title
+  api.summary @articleversion.summary
+  api.content @articleversion.content
+
+  api.created_at @articleversion.created_at
+  api.updated_at @articleversion.updated_at
+end

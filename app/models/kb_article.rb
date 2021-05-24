@@ -129,6 +129,7 @@ class KbArticle < ActiveRecord::Base
 
     belongs_to :author,   :class_name => 'User', :foreign_key => 'author_id'
     belongs_to :updater,  :class_name => 'User', :foreign_key => 'updater_id'
+    belongs_to :category, :class_name => "KbCategory"
 
     # Return true if the content is the current page content
     def current_version?

@@ -5,9 +5,15 @@ one:
   title: MyString
   summary: MyText
   content: MyText
+  project_id: 1
+  author_id: 1
+  updater_id: 1
+  version: 0
 two:
   id: 2
   category_id: 1
   title: MyString
   summary: MyText
   content: MyText
+  project_id: 1
+  version: 0
